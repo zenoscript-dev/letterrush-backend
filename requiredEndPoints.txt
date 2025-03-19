@@ -1,0 +1,85 @@
+Got it! Your game is a **Fast Typing Competition** where players must **type a given word as fast as possible**, and the first to submit wins. Here are some **detailed prompts** to refine and complete your game logic:  
+
+---
+
+## **🔹 Game Setup & WebSocket Functionality**  
+
+### **1️⃣ Real-time WebSocket Setup**  
+- Setup a **WebSocket server** to handle real-time communication.  
+- Store **userId and socketId in Redis** when a player connects.  
+- Implement **automatic reconnection** (if a user reconnects within 3 minutes, restore them to the same room).  
+
+---
+
+## **🔹 Game Flow & Room Management**  
+
+### **2️⃣ Room Creation & Auto Balancing**  
+- On startup, **create 5 rooms** (each can hold **300 players**).  
+- If all 5 rooms are full, **create a new room dynamically**.  
+- Ensure each player **is in only one room at a time**.  
+- API to **check how many players are in a room**.  
+
+### **3️⃣ Joining & Leaving Rooms**  
+- When a user requests to **join a room**, check for available slots.  
+- If the user **was in another room**, **kick them from the old room** and add them to the new one.  
+- Provide an **API to leave a room**.  
+
+---
+
+## **🔹 Typing Race Logic**  
+
+### **4️⃣ Word Distribution & Round System**  
+- Every round, **send a random word** to all players in a room.  
+- Players must **type the word exactly as given** (case-sensitive or case-insensitive option).  
+- **First player to submit wins the round**.  
+- If **no one types correctly in 10 seconds**, send a new word automatically.  
+
+### **5️⃣ Handling Player Submissions**  
+- When a user types the word, compare it with the expected word.  
+- If correct:  
+  - **Broadcast the winner to the room**.  
+  - **Increase their score** by 1.  
+  - **Store top 10 scores** in Redis.  
+  - **Start a new round** after 3 seconds.  
+- If incorrect:  
+  - Let the user retry until time runs out.  
+- **Once a winner is declared, do not accept more answers**.  
+
+---
+
+## **🔹 Real-time Features & Enhancements**  
+
+### **6️⃣ Countdown Timer & Auto-Next Round**  
+- **Show a countdown** (e.g., 5-10 seconds) before the round starts.  
+- **Display real-time leaderboard updates**.  
+- **If no winner after 10 seconds**, move to the next word.  
+
+### **7️⃣ Speed Tracking & Cheating Prevention**  
+- **Track user’s typing speed** (prevent bots from submitting instantly).  
+- Apply a **minimum delay (e.g., 1s) before re-submitting** to prevent spam.  
+- Implement **auto-kick for repeated spam attempts**.  
+
+### **8️⃣ Leaderboard & Scoring System**  
+- Store **only the top 10 players** per room.  
+- Provide an **API to fetch the leaderboard**.  
+- Display **real-time rank updates** for all players in the room.  
+
+### **9️⃣ Spectator Mode & Waiting Room**  
+- If a player joins mid-game, **let them spectate until the next round starts**.  
+- Create a **waiting room** for players to chat before the next game.  
+
+---
+
+## **🔹 API Endpoints**  
+✅ `/start-game` → Start a new round for a room.  
+✅ `/join-room/:roomId` → Join a specific room.  
+✅ `/leave-room` → Leave the current room.  
+✅ `/submit-word/:roomId` → Submit a typed word.  
+✅ `/leaderboard` → Get the top 10 players.  
+✅ `/room-stats` → Get the number of users in a room.  
+✅ `/kick-user/:userId` → Kick a user for spamming.  
+
+---
+
+### **Next Steps**  
+Would you like me to **generate the WebSocket server code** for these features? 🚀
