@@ -1,10 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { Socket } from 'socket.io';
-import { randomBytes } from 'crypto';
-import { RedisService } from 'src/redis/redis.service';
 import { ConfigService } from '@nestjs/config';
+import { Socket } from 'socket.io';
+import { RedisService } from 'src/redis/redis.service';
 import { generateRoomName, generateUUID } from 'src/utils/game.utils';
-import { getRedisKey } from '../enums/redisKeys.enums';
+import {
+  getListOfRoomsKey,
+  getPlayerSocketKey,
+  getPlayersUnderRoomKey,
+  getUserRoomKey,
+} from 'src/utils/rediskeyGenerator.utils';
+import loadWordsIntoRedis from 'src/utils/words.utils';
 
 /**
  * Interface representing a player in the game
@@ -31,12 +36,12 @@ export class GameService {
   constructor(
     private readonly redisService: RedisService,
     private readonly configService: ConfigService,
-  ) {
-    console.log('🎮 GameService initialized');
-  }
+  ) {}
 
   async onModuleInit() {
     // create and store all the rooms in redis hash
+    await this.cleanRedisOnStartUp();
+    await loadWordsIntoRedis();
     const rooms = await this.redisService.getHashAllFields('rooms');
     if (!Object.keys(rooms).length) {
       console.log('🎮 Creating new rooms');
@@ -48,54 +53,79 @@ export class GameService {
 
   async connectPlayerToRoom(roomId: string, client: Socket, nickName: string) {
     try {
+      const playerSocketKey = getPlayerSocketKey(nickName);
+      console.log(playerSocketKey, client.id, 'playerSocketKey');
 
-        const playerSocketKey = getRedisKey.playerSocket(nickName);
+      // Store player's current socket ID in Redis
+      await this.redisService.setKey(playerSocketKey, client.id);
 
-        // store clients socket id in redis
-        await this.redisService.setKey(playerSocketKey, client.id);
-
-      // Step 1: Check if the room exists
+      // Check if the room exists
       const roomExists = await this.checkIfRoomExists(roomId);
       if (!roomExists) {
-        throw new Error('Room not found');
+        client.emit('roomNotFound', { message: 'Room not found' });
+        return;
       }
-  
-      // Step 2: Check if the user is already in a room
-      const roomPlayerSet = getRedisKey.roomPlayerSet(roomId);
-      const previousRoomId = await this.redisService.getKey(roomPlayerSet);
-  
-      if (previousRoomId) {
-        // Step 3: Remove the user from the previous room
-        const playerRoomKey = getRedisKey.playerCurrentRoom(nickName);
-        console.log(`🎮 Removing user ${nickName} from room ${previousRoomId}`);
-        await this.redisService.removeItemFromSet(playerRoomKey, nickName);
-      }
-  
-      // Step 4: Add user to the new room
-      const playerSocketId = client.id;
-      const playerRoomKey = getRedisKey.playerCurrentRoom(nickName);
-      await this.redisService.addItemToSet(playerRoomKey, nickName);
-      await this.redisService.addItemToSet(roomPlayerSet, playerSocketId);
 
-  
-    //   // Step 5: Update the user's current room
-    //   await this.redisService.setKey(`currentRoom:${userId}`, roomId);
-  
-    //   console.log(`🎮 User ${userId} connected to room ${roomId}`);
+      const playerCurrentRoomKey = getUserRoomKey(nickName);
+      const previousRoomId =
+        await this.redisService.getKey(playerCurrentRoomKey);
+
+      // If the player is already in the correct room, do nothing
+      if (previousRoomId === roomId) {
+        console.log(`⚠️ ${nickName} is already in room ${roomId}`);
+        return;
+      }
+
+      // Handle room switching
+      if (previousRoomId) {
+        await this.removePlayerFromRoom(previousRoomId, nickName);
+        client.leave(previousRoomId);
+        console.log(`🚪 ${nickName} left room ${previousRoomId}`);
+      }
+
+      // Add player to new room and store their room ID
+      await this.addPlayerToRoom(roomId, nickName);
+      await this.redisService.setKey(playerCurrentRoomKey, roomId);
+      client.join(roomId);
+
+      console.log(`🎮 ${nickName} joined room ${roomId}`);
+      client.emit('roomJoined', {
+        roomId,
+        message: 'Successfully joined room',
+      });
     } catch (error) {
       console.error('🎮 Error connecting player to room:', error);
       throw error;
     }
   }
-  
+
+  async handleChat(client: Socket, nickname: string) {
+    try {
+      const playerRoomKey = getUserRoomKey(nickname);
+      const playerRoom = await this.redisService.getKey(playerRoomKey);
+      if (!playerRoom) {
+        console.log('❌ Player is not in the correct room');
+        client.emit('error', { message: 'Player is not in the correct room' });
+        return;
+      }
+
+      return playerRoom;
+    } catch (error) {
+      console.error('🎮 Error handling chat:', error);
+      throw error;
+    }
+  }
 
   async createRooms() {
     try {
       const numberOfRooms = Number(this.configService.get('NUMBER_OF_ROOMS'));
+      console.log(numberOfRooms);
       for (let i = 0; i < numberOfRooms; i++) {
         const roomId = await generateUUID();
         const roomName = await generateRoomName();
-        await this.redisService.setHash('rooms', roomId, roomName);
+        const listOfRoomsKey = getListOfRoomsKey();
+        console.log(listOfRoomsKey, 'asdasdaasdasasdasasd');
+        await this.redisService.setHash(listOfRoomsKey, roomId, roomName);
       }
       console.log('🎮 Created all rooms');
     } catch (error) {
@@ -106,7 +136,8 @@ export class GameService {
 
   async checkIfRoomExists(roomId: string) {
     try {
-      const room = await this.redisService.getHash('rooms', roomId);
+      const listOfRoomsKey = getListOfRoomsKey();
+      const room = await this.redisService.getHash(listOfRoomsKey, roomId);
       if (!room) {
         throw new Error('Room not found');
       }
@@ -119,7 +150,8 @@ export class GameService {
 
   async getRoomList() {
     try {
-      const rooms = await this.redisService.getHashAllFields('rooms');
+      const listOfRoomsKey = getListOfRoomsKey();
+      const rooms = await this.redisService.getHashAllFields(listOfRoomsKey);
       if (!Object.keys(rooms).length) {
         throw new Error('No rooms found');
       }
@@ -142,35 +174,103 @@ export class GameService {
     }
   }
 
-  async removeClient(clientId: string) {
+  async removeClient(nickName: string, client?: Socket) {
     try {
-      console.log(`🎮 Removing client: ${clientId}`);
-  
-      // Step 1: Identify the user associated with the socket
-      const userId = await this.redisService.getKey(`socket:${clientId}`);
-      if (!userId) {
-        console.log(`🎮 No user found for client ${clientId}`);
-        return;
+      console.log(`🎮 Removing client: ${nickName}`);
+
+      const playerSocketKey = getPlayerSocketKey(nickName);
+      const playerCurrentRoomKey = getUserRoomKey(nickName);
+
+      // Get the user's room ID
+      const roomId = await this.redisService.getKey(playerCurrentRoomKey);
+
+      // Remove player from room if they are in one
+      if (roomId) {
+        await this.removePlayerFromRoom(roomId, nickName);
+        console.log(`🚪 ${nickName} removed from room ${roomId}`);
+
+        // Notify other players in the room
+        if (client) {
+          client.leave(roomId);
+          // this.server.to(roomId).emit('player-left', { nickName });
+        }
       }
-  
-      // Step 2: Find all rooms the user is in
-      const userRooms = await this.redisService.getSetMembers(`player:${userId}`);
-      
-      for (const roomId of userRooms) {
-        // Step 3: Remove the user from room player set
-        await this.redisService.removeItemFromSet(`players:${roomId}`, clientId);
-      }
-  
-      // Step 4: Remove user-specific keys
-      await this.redisService.deleteKey(`player:${userId}`);
-      await this.redisService.deleteKey(`socket:${clientId}`);
-  
-      console.log(`🎮 Successfully removed client: ${clientId}`);
-  
+
+      // Remove stored player data
+      await this.redisService.deleteKey(playerSocketKey);
+      await this.redisService.deleteKey(playerCurrentRoomKey);
+
+      console.log(`✅ Successfully removed client: ${nickName}`);
+      return {
+        removed: true,
+        roomId,
+      };
     } catch (error) {
-      console.error('🎮 Error removing client:', error);
+      console.error('❌ Error removing client:', error);
       throw error;
     }
   }
-  
+
+  async addPlayerToRoom(roomId: string, nickName: string) {
+    try {
+      const playersUnderRoomKey = getPlayersUnderRoomKey(roomId);
+      await this.redisService.addItemToSet(playersUnderRoomKey, nickName);
+    } catch (error) {
+      console.error('🎮 Error adding player to room:', error);
+      throw error;
+    }
+  }
+
+  async removePlayerFromRoom(roomId: string, nickName: string) {
+    try {
+      const playersUnderRoomKey = getPlayersUnderRoomKey(roomId);
+      await this.redisService.removeItemFromSet(playersUnderRoomKey, nickName);
+    } catch (error) {
+      console.error('🎮 Error removing player from room:', error);
+      throw error;
+    }
+  }
+
+  async getRandomWord() {
+    try {
+      const wordsKey = 'words';
+      const wordCount = await this.redisService.getSetMembersCount(wordsKey);
+      if (wordCount === 0) {
+        throw new Error('No words available in Redis');
+      }
+
+      const randomWord = await this.redisService.setRamdonmMember(
+        wordsKey,
+        '1',
+      );
+      return randomWord;
+    } catch (error) {
+      console.error('🎮 Error getting random word:', error);
+      throw error;
+    }
+  }
+
+  async cleanRedisOnStartUp() {
+    try {
+      console.log('🧹 Starting Redis cleanup on startup...');
+
+      // Get all keys except the room list
+      const allKeys = await this.redisService.getAllSets();
+      const roomListKey = getListOfRoomsKey();
+      const wordsKey = 'words';
+
+      // Delete each key that isn't the room list
+      for (const key of allKeys) {
+        if (key !== roomListKey && key !== wordsKey) {
+          await this.redisService.deleteKey(key);
+          console.log(`🗑️ Deleted key: ${key}`);
+        }
+      }
+
+      console.log('✨ Redis cleanup completed');
+    } catch (error) {
+      console.error('🎮 Error cleaning Redis on startup:', error);
+      throw error;
+    }
+  }
 }

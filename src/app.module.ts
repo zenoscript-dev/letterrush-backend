@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { RedisModule } from './redis/redis.module';
 import { GuestGameModule } from './guestGame/guestGame.module';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { RedisModule } from './redis/redis.module';
 import { RoomsModule } from './rooms/rooms.module';
 
 @Module({
@@ -15,6 +15,7 @@ import { RoomsModule } from './rooms/rooms.module';
       envFilePath: '.env',
     }),
     RoomsModule,
+    GuestGameModule,
   ],
   controllers: [AppController],
   providers: [AppService],

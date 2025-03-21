@@ -32,6 +32,10 @@ export class RedisService implements OnModuleInit {
     return await this.redisClient.scard(key);
   }
 
+  async setRamdonmMember(key: string, value: string) {
+    return await this.redisClient.srandmember(key, value);
+  }
+
   async checkIfItemExistsInSet(key: string, value: string) {
     return await this.redisClient.sismember(key, value);
   }
@@ -39,7 +43,6 @@ export class RedisService implements OnModuleInit {
   async getAllSets() {
     return await this.redisClient.keys('*');
   }
-
 
   // create a hash to store user details
   async setHash(key: string, field: string, value: any) {
@@ -70,5 +73,11 @@ export class RedisService implements OnModuleInit {
     return await this.redisClient.del(key);
   }
 
+  async del(key: string) {
+    return await this.redisClient.del(key);
+  }
 
+  async rPush(key: string, ...values: string[]) {
+    return await this.redisClient.rpush(key, ...values);
+  }
 }

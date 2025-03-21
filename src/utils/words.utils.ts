@@ -1,15 +1,38 @@
 import * as fs from 'fs';
+import { createClient } from 'redis';
 
-// Load JSON dictionary from file
-const data = JSON.parse(fs.readFileSync('words_dictionary.json', 'utf8'));
+async function loadWordsIntoRedis() {
+  const redisClient = createClient();
+  await redisClient.connect();
 
-// Convert dictionary keys to an array (Preprocessing step, O(N))
-const wordList = Object.keys(data);
+  const key = 'words';
 
-// Function to get a random word in O(1)
-export function getRandomWord(): string {
-  return wordList[Math.floor(Math.random() * wordList.length)];
+  // Ensure 'words' is a set
+  const type = await redisClient.type(key);
+  if (type !== 'set' && type !== 'none') {
+    console.log(`🚨 Existing key '${key}' is not a Set, deleting it...`);
+    await redisClient.del(key);
+  }
+
+  // Check if words already exist in Redis
+  const existingWords = await redisClient.sCard(key);
+
+  if (existingWords === 0) {
+    const filePath = 'filtered_data.json';
+    const fileData = fs.readFileSync(filePath, 'utf-8');
+    const jsonWords = JSON.parse(fileData);
+    const words = Object.keys(jsonWords); // Extract words as an array
+
+    for (let i = 0; i < words.length; i++) {
+      await redisClient.sAdd(key, words[i]);
+    }
+
+    console.log(`📥 Loaded ${words.length} words into Redis`);
+  } else {
+    console.log('📝 Words already exist in Redis, skipping load');
+  }
+
+  await redisClient.disconnect();
 }
 
-// Example usage
-console.log(getRandomWord()); // Picks a random word in O(1)
+export default loadWordsIntoRedis;
