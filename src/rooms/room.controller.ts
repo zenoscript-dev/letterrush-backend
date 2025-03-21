@@ -7,16 +7,16 @@ export class RoomController {
 
   @Get()
   async getAllRooms() {
-    try {  
+    try {
       const rooms = await this.gameService.getRoomList();
       return {
         success: true,
-        data: rooms
+        data: rooms,
       };
     } catch (error) {
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }

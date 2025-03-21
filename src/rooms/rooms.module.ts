@@ -4,11 +4,9 @@ import { RedisModule } from 'src/redis/redis.module';
 import { RoomController } from './room.controller';
 
 @Module({
-  imports: [
-    RedisModule,
-  ],
+  imports: [RedisModule],
   controllers: [RoomController],
   providers: [GameService],
-  exports: [GameService]
+  exports: [GameService],
 })
 export class RoomsModule {}
