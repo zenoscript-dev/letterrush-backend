@@ -273,4 +273,16 @@ export class GameService {
       throw error;
     }
   }
+
+  async getNumberOfPlayersInRoom(roomId: string) {
+    try {
+      const playersUnderRoomKey = getPlayersUnderRoomKey(roomId);
+      const numberOfPlayers =
+        await this.redisService.getSetMembersCount(playersUnderRoomKey);
+      return numberOfPlayers;
+    } catch (error) {
+      console.error('🎮 Error getting number of players in room:', error);
+      throw error;
+    }
+  }
 }

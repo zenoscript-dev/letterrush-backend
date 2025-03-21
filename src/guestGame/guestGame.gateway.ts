@@ -54,6 +54,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server
         .to(roomId)
         .emit('player-joined', `${nickname} joined the room`);
+      await this.handleGetNumberOfPlayersInRoom(roomId);
     } catch (error) {
       console.error('❌ Error in handleConnection:', error);
       client.emit('error', { message: error.message || 'Connection error' });
@@ -78,11 +79,22 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.server
           .to(removed.roomId)
           .emit('player-left', `${nickname} left the room`);
+        await this.handleGetNumberOfPlayersInRoom(removed.roomId);
       } else {
         console.log('❌ Client data not removed:', client.id);
       }
     } catch (error) {
       console.error('❌ Error in handleDisconnect:', error);
+    }
+  }
+
+  async handleGetNumberOfPlayersInRoom(roomId: string) {
+    try {
+      const numberOfPlayers =
+        await this.gameService.getNumberOfPlayersInRoom(roomId);
+      this.server.to(roomId).emit('numberOfPlayers', numberOfPlayers);
+    } catch (error) {
+      console.error('❌ Error in getNumberOfPlayersInRoom:', error);
     }
   }
 
