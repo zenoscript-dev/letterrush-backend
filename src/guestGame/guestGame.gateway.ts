@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import {
   OnGatewayConnection,
@@ -9,7 +10,6 @@ import {
 import { Server, Socket } from 'socket.io';
 import { generateUUID } from 'src/utils/game.utils';
 import { GameService } from './service/game.service';
-import { Logger } from '@nestjs/common';
 
 interface Message {
   id: string;
@@ -70,27 +70,29 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async handleConnection(client: Socket) {
     try {
-      this.logger.log(`New client connection attempt - Socket ID: ${client.id}`);
+      this.logger.log(
+        `New client connection attempt - Socket ID: ${client.id}`,
+      );
       const roomId = client.handshake.query.roomId as string;
       const nickname = client.handshake.query.nickname as string;
-      if (!roomId || !nickname) {
-        this.logger.error('Room ID and player ID are required');
-        client.emit('error', { message: 'Room ID and player ID are required' });
-        client.disconnect();
-        return;
-      }
-      await this.gameService.connectPlayerToRoom(roomId, client, nickname);
-      this.server.to(roomId).emit('player-joined', {
-        id: generateUUID(),
-        message: `${nickname.split('@')[0]} joined the room`,
-        roomId,
-        nickName: 'letterrush-bot',
-        type: MessageType.PLAYER_JOINED,
-      } as Message);
-      await this.handleGetNumberOfPlayersInRoom(roomId);
-      await this.gameService.sendWordToNewlyConnectedPlayer(client, roomId);
-      const leaderBoard = await this.gameService.getLeaderBoard(roomId);
-      this.server.to(roomId).emit('leader-board', leaderBoard);
+      // if (!roomId || !nickname) {
+      //   this.logger.error('Room ID and player ID are required');
+      //   client.emit('error', { message: 'Room ID and player ID are required' });
+      //   client.disconnect();
+      //   return;
+      // }
+      // await this.gameService.connectPlayerToRoom(roomId, client, nickname);
+      // this.server.to(roomId).emit('player-joined', {
+      //   id: generateUUID(),
+      //   message: `${nickname.split('@')[0]} joined the room`,
+      //   roomId,
+      //   nickName: 'letterrush-bot',
+      //   type: MessageType.PLAYER_JOINED,
+      // } as Message);
+      // await this.handleGetNumberOfPlayersInRoom(roomId);
+      // await this.gameService.sendWordToNewlyConnectedPlayer(client, roomId);
+      // const leaderBoard = await this.gameService.getLeaderBoard(roomId);
+      // this.server.to(roomId).emit('leader-board', leaderBoard);
     } catch (error) {
       this.logger.error(`Error in handleConnection: ${error.message}`);
       client.emit('error', { message: error.message || 'Connection error' });
@@ -338,13 +340,17 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 });
 
                 if (!isActive) {
-                  this.logger.warn(`Player ${player} is inactive, disconnecting...`);
+                  this.logger.warn(
+                    `Player ${player} is inactive, disconnecting...`,
+                  );
                   socket.disconnect();
                   await this.gameService.removeClient(player, socket);
                 }
               }
             } catch (err) {
-              this.logger.error(`Error pinging player ${player}: ${err.message}`);
+              this.logger.error(
+                `Error pinging player ${player}: ${err.message}`,
+              );
             }
           }
         }
