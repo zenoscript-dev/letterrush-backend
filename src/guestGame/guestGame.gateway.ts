@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import {
   OnGatewayConnection,
@@ -9,7 +10,6 @@ import {
 import { Server, Socket } from 'socket.io';
 import { generateUUID } from 'src/utils/game.utils';
 import { GameService } from './service/game.service';
-import { Logger } from '@nestjs/common';
 
 interface Message {
   id: string;
@@ -35,7 +35,7 @@ export enum MessageType {
   RANK = 'rank',
 }
 
-@WebSocketGateway({
+@WebSocketGateway(4100, {
   cors: { origin: '*', pingTimeout: 60000, pingInterval: 30000 },
   namespace: '/game',
 })
@@ -70,7 +70,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async handleConnection(client: Socket) {
     try {
-      this.logger.log(`New client connection attempt - Socket ID: ${client.id}`);
+      this.logger.log(
+        `New client connection attempt - Socket ID: ${client.id}`,
+      );
       const roomId = client.handshake.query.roomId as string;
       const nickname = client.handshake.query.nickname as string;
       if (!roomId || !nickname) {
@@ -338,13 +340,17 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 });
 
                 if (!isActive) {
-                  this.logger.warn(`Player ${player} is inactive, disconnecting...`);
+                  this.logger.warn(
+                    `Player ${player} is inactive, disconnecting...`,
+                  );
                   socket.disconnect();
                   await this.gameService.removeClient(player, socket);
                 }
               }
             } catch (err) {
-              this.logger.error(`Error pinging player ${player}: ${err.message}`);
+              this.logger.error(
+                `Error pinging player ${player}: ${err.message}`,
+              );
             }
           }
         }
