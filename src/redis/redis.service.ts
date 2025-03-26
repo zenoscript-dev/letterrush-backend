@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
+import { getRoomLeaderBoardKey } from 'src/utils/rediskeyGenerator.utils';
 
 @Injectable()
 export class RedisService implements OnModuleInit {
@@ -79,5 +80,39 @@ export class RedisService implements OnModuleInit {
 
   async rPush(key: string, ...values: string[]) {
     return await this.redisClient.rpush(key, ...values);
+  }
+
+  async addplayerScore(roomId: string, nickName: string, score: number) {
+    const leaderBoardKey = getRoomLeaderBoardKey(roomId);
+    return await this.redisClient.zadd(leaderBoardKey, score, nickName);
+  }
+
+  async deleteplayerScore(roomId: string, nickName: string) {
+    const leaderBoardKey = getRoomLeaderBoardKey(roomId);
+    return await this.redisClient.zrem(leaderBoardKey, nickName);
+  }
+
+  async getPlayerScore(roomId: string, nickName: string) {
+    const leaderBoardKey = getRoomLeaderBoardKey(roomId);
+    return await this.redisClient.zscore(leaderBoardKey, nickName);
+  }
+
+  async getLeaderBoard(roomId: string) {
+    const leaderBoardKey = getRoomLeaderBoardKey(roomId);
+    const scores = await this.redisClient.zrevrange(
+      leaderBoardKey,
+      0,
+      -1,
+      'WITHSCORES',
+    );
+    const formattedScores = [];
+    for (let i = 0; i < scores.length; i += 2) {
+      formattedScores.push({
+        nickname: scores[i],
+        score: parseInt(scores[i + 1]),
+        rank: i / 2 + 1,
+      });
+    }
+    return formattedScores;
   }
 }

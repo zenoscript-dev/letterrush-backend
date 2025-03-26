@@ -21,3 +21,11 @@ export function getUserRoomKey(nickName: string) {
 export function getPlayersUnderRoomKey(roomId: string) {
   return `room:${roomId}:players`;
 }
+
+export function getCurrentWordForRoomKey(roomId: string) {
+  return `room:${roomId}:currentWord`;
+}
+
+export function getRoomLeaderBoardKey(roomId: string) {
+  return `room:${roomId}:leaderBoard`;
+}

@@ -4,6 +4,7 @@ import { Socket } from 'socket.io';
 import { RedisService } from 'src/redis/redis.service';
 import { generateRoomName, generateUUID } from 'src/utils/game.utils';
 import {
+  getCurrentWordForRoomKey,
   getListOfRoomsKey,
   getPlayerSocketKey,
   getPlayersUnderRoomKey,
@@ -19,13 +20,6 @@ import loadWordsIntoRedis from 'src/utils/words.utils';
  * @property {boolean} isGuest - Whether this is a guest account
  * @property {string} [currentRoom] - Current room ID the player is in (optional)
  */
-interface Player {
-  nickname: string;
-  socketId: string;
-  lastActive: number;
-  isGuest: boolean;
-  currentRoom?: string;
-}
 
 /**
  * Service handling game logic and player management.
@@ -151,6 +145,7 @@ export class GameService {
   async getRoomList() {
     try {
       const listOfRoomsKey = getListOfRoomsKey();
+
       const rooms = await this.redisService.getHashAllFields(listOfRoomsKey);
       if (!Object.keys(rooms).length) {
         throw new Error('No rooms found');
@@ -158,13 +153,13 @@ export class GameService {
       //    get each room size
       const roomList = [];
       for (const roomId in rooms) {
-        const roomSize = await this.redisService.getSetMembersCount(
-          `players:${roomId}`,
-        );
+        const playersUnderRoomKey = getPlayersUnderRoomKey(roomId);
+
         roomList.push({
           roomId,
           roomName: rooms[roomId],
-          roomSize,
+          roomSize:
+            await this.redisService.getSetMembersCount(playersUnderRoomKey),
         });
       }
       return roomList;
@@ -199,6 +194,7 @@ export class GameService {
       // Remove stored player data
       await this.redisService.deleteKey(playerSocketKey);
       await this.redisService.deleteKey(playerCurrentRoomKey);
+      await this.redisService.deleteplayerScore(roomId, nickName);
 
       console.log(`✅ Successfully removed client: ${nickName}`);
       return {
@@ -215,6 +211,7 @@ export class GameService {
     try {
       const playersUnderRoomKey = getPlayersUnderRoomKey(roomId);
       await this.redisService.addItemToSet(playersUnderRoomKey, nickName);
+      await this.redisService.addplayerScore(roomId, nickName, 0);
     } catch (error) {
       console.error('🎮 Error adding player to room:', error);
       throw error;
@@ -225,6 +222,7 @@ export class GameService {
     try {
       const playersUnderRoomKey = getPlayersUnderRoomKey(roomId);
       await this.redisService.removeItemFromSet(playersUnderRoomKey, nickName);
+      await this.redisService.deleteplayerScore(roomId, nickName);
     } catch (error) {
       console.error('🎮 Error removing player from room:', error);
       throw error;
@@ -250,20 +248,50 @@ export class GameService {
     }
   }
 
+  async sendRandomWordToRoom(roomId: string) {
+    try {
+      if (!roomId) {
+        throw new Error('Room ID is required');
+      }
+      const roomExists = await this.checkIfRoomExists(roomId);
+      if (!roomExists) {
+        throw new Error('Room not found');
+      }
+
+      const word = await this.getRandomWord();
+      if (!word.length) {
+        throw new Error('No word available in Redis');
+      }
+      const currentWordForRoomKey = getCurrentWordForRoomKey(roomId);
+      await this.redisService.setKey(currentWordForRoomKey, word[0]);
+      return word[0];
+    } catch (error) {
+      console.error('🎮 Error setting current word for room:', error);
+      throw error;
+    }
+  }
+
   async cleanRedisOnStartUp() {
     try {
       console.log('🧹 Starting Redis cleanup on startup...');
 
-      // Get all keys except the room list
+      // Get all keys except the room list and words
       const allKeys = await this.redisService.getAllSets();
       const roomListKey = getListOfRoomsKey();
       const wordsKey = 'words';
 
-      // Delete each key that isn't the room list
+      // Delete each key that isn't the room list or words
       for (const key of allKeys) {
         if (key !== roomListKey && key !== wordsKey) {
+          // Check if key is a players under room key
+          // if (key.includes('room:') && key.includes(':players')) {
           await this.redisService.deleteKey(key);
-          console.log(`🗑️ Deleted key: ${key}`);
+          console.log(`🗑️ Deleted players under room key: ${key}`);
+          // Delete other keys like socket IDs, current rooms etc
+          // else {
+          //   await this.redisService.deleteKey(key);
+          //   console.log(`🗑️ Deleted key: ${key}`);
+          // }
         }
       }
 
@@ -282,6 +310,224 @@ export class GameService {
       return numberOfPlayers;
     } catch (error) {
       console.error('🎮 Error getting number of players in room:', error);
+      throw error;
+    }
+  }
+
+  async handleSubmitWord(client: Socket, word: string, nickName: string) {
+    try {
+      console.log('🎮 handleSubmitWord called with:', { word, nickName });
+
+      if (!word) {
+        console.log('❌ Word is missing');
+        throw new Error('Word is required');
+      }
+      if (!nickName) {
+        console.log('❌ Nickname is missing');
+        throw new Error('Nickname is required');
+      }
+
+      const playerExists = await this.checkIfPlayerExists(nickName);
+      console.log('👤 Player exists check:', {
+        nickName,
+        exists: playerExists,
+      });
+      if (!playerExists) {
+        throw new Error('Player not found or not connected');
+      }
+
+      const playerCurrentRoom = await this.getPlayerRoom(nickName);
+      console.log('🏠 Player current room:', {
+        nickName,
+        room: playerCurrentRoom,
+      });
+      if (!playerCurrentRoom) {
+        throw new Error('Player is not in a room');
+      }
+      const roomExists = await this.checkIfRoomExists(playerCurrentRoom);
+      console.log('🏠 Room exists check:', {
+        room: playerCurrentRoom,
+        exists: roomExists,
+      });
+      if (!roomExists) {
+        throw new Error('Room not found');
+      }
+
+      const currentWordForRoomKey = getCurrentWordForRoomKey(playerCurrentRoom);
+      const currentWord = await this.redisService.getKey(currentWordForRoomKey);
+      console.log('📝 Current word check:', {
+        roomWord: currentWord,
+        submittedWord: word,
+      });
+      if (!currentWord) {
+        throw new Error('No word assigned to the room');
+      }
+
+      if (currentWord !== word) {
+        console.log('❌ Word does not match:', {
+          expected: currentWord,
+          received: word,
+        });
+
+        return {
+          success: false,
+          message: 'Word does not match',
+          roomId: playerCurrentRoom,
+          winner: null,
+          nickName: nickName,
+        };
+      } else {
+        await this.incremenetPlayerScore(playerCurrentRoom, nickName);
+        console.log('✅ Word matches! Deleting word from room');
+        client.emit('wordMatch', { message: 'Word matches' });
+        await this.redisService.deleteKey(currentWordForRoomKey);
+        return {
+          success: true,
+          message: 'Word submitted successfully',
+          roomId: playerCurrentRoom,
+          winner: nickName,
+        };
+      }
+    } catch (error) {
+      console.error('🎮 Error handling submit word:', error);
+      throw error;
+    }
+  }
+
+  async checkIfPlayerExists(nickName: string) {
+    try {
+      const playerExists = await this.redisService.getKey(
+        getPlayerSocketKey(nickName),
+      );
+      return playerExists;
+    } catch (error) {
+      console.error('🎮 Error checking if player exists:', error);
+      throw error;
+    }
+  }
+
+  async getPlayerRoom(nickName: string) {
+    try {
+      const playerRoomKey = getUserRoomKey(nickName);
+      const playerRoom = await this.redisService.getKey(playerRoomKey);
+      if (!playerRoom) {
+        throw new Error('Player is not in a room');
+      }
+      return playerRoom;
+    } catch (error) {
+      console.error('🎮 Error getting player room:', error);
+      throw error;
+    }
+  }
+
+  async addPlayerScore(roomId: string, nickName: string, score: number) {
+    try {
+      await this.redisService.addplayerScore(roomId, nickName, score);
+      return true;
+    } catch (error) {
+      console.error('🎮 Error adding player score:', error);
+      throw error;
+    }
+  }
+
+  async incremenetPlayerScore(roomId: string, nickName: string) {
+    try {
+      const playerScore = await this.getPlayerScore(roomId, nickName);
+      await this.addPlayerScore(roomId, nickName, Number(playerScore) + 1);
+      return true;
+    } catch (error) {
+      console.error('🎮 Error incrementing player score:', error);
+      throw error;
+    }
+  }
+
+  async getPlayerScore(roomId: string, nickName: string): Promise<number> {
+    try {
+      const playerScore = await this.redisService.getPlayerScore(
+        roomId,
+        nickName,
+      );
+      return Number(playerScore);
+    } catch (error) {
+      console.error('🎮 Error getting player score:', error);
+      throw error;
+    }
+  }
+
+  async getLeaderBoard(roomId: string) {
+    try {
+      const leaderBoard = await this.redisService.getLeaderBoard(roomId);
+      return leaderBoard;
+    } catch (error) {
+      console.error('🎮 Error getting leader board:', error);
+      throw error;
+    }
+  }
+
+  async fetchNickNameByClientId(clientId: string) {
+    try {
+      const playerSocketKey = getPlayerSocketKey(clientId);
+      const nickName = await this.redisService.getKey(playerSocketKey);
+      return nickName;
+    } catch (error) {
+      console.error('🎮 Error fetching nick name by client id:', error);
+      throw error;
+    }
+  }
+
+  async fetchRoomCurrentWord(roomId: string) {
+    try {
+      const currentWordForRoomKey = getCurrentWordForRoomKey(roomId);
+      const currentWord = await this.redisService.getKey(currentWordForRoomKey);
+      return currentWord;
+    } catch (error) {
+      console.error('🎮 Error fetching room current word:', error);
+      throw error;
+    }
+  }
+
+  async sendWordToNewlyConnectedPlayer(client: Socket, roomId: string) {
+    try {
+      const currentWord = await this.fetchRoomCurrentWord(roomId);
+      await client.emit('random-word', currentWord);
+      await client.emit('leader-board', await this.getLeaderBoard(roomId));
+    } catch (error) {
+      console.error('🎮 Error sending word to newly connected player:', error);
+    }
+  }
+
+  async getPlayerRank(roomId: string, nickName: string) {
+    try {
+      const leaderBoard = await this.getLeaderBoard(roomId);
+      const playerRank = leaderBoard.findIndex(
+        (player) => player.nickname === nickName,
+      );
+      return playerRank;
+    } catch (error) {
+      console.error('🎮 Error getting player rank:', error);
+      throw error;
+    }
+  }
+
+  async getPlayersInRoom(roomId: string) {
+    try {
+      const playersUnderRoomKey = getPlayersUnderRoomKey(roomId);
+      const players =
+        await this.redisService.getSetMembers(playersUnderRoomKey);
+      return players;
+    } catch (error) {
+      console.error('🎮 Error getting players in room:', error);
+      throw error;
+    }
+  }
+
+  async getPlayerSocket(nickName: string) {
+    try {
+      const playerSocketKey = getPlayerSocketKey(nickName);
+      const playerSocket = await this.redisService.getKey(playerSocketKey);
+      return playerSocket;
+    } catch (error) {
+      console.error('🎮 Error getting player socket:', error);
       throw error;
     }
   }
