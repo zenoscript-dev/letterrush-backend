@@ -242,6 +242,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         await this.handleSendRandomWord({
           roomId: result.roomId,
         });
+        console.log('🔄 Getting player rank');
+        const playerRank = await this.gameService.getPlayerRank(
+          result.roomId,
+          nickName,
+        );
+        console.log('🔄 Player rank:', playerRank);
+        return client.emit('rank', playerRank);
       } else {
         // client.emit('wordNotMatch', { message: 'Word does not match' });
         this.server.to(result.roomId).emit('word-not-match', {
@@ -251,13 +258,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
           nickName: nickName,
           type: MessageType.WORD_NOT_MATCH,
         } as Message);
+        console.log('🔄 Getting player rank');
+        const playerRank = await this.gameService.getPlayerRank(
+          result.roomId,
+          nickName,
+        );
+        return client.emit('rank', playerRank);
       }
-      console.log('🔄 Getting player rank');
-      const playerRank = await this.gameService.getPlayerRank(
-        result.roomId,
-        nickName,
-      );
-      return client.emit('rank', playerRank);
     } catch (error) {
       console.error('❌ Error in submitWord:', error);
       client.emit('error', { message: 'Submission failed' });

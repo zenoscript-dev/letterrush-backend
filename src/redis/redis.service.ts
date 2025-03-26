@@ -115,4 +115,12 @@ export class RedisService implements OnModuleInit {
     }
     return formattedScores;
   }
+
+  async getPlayerRank(
+    leaderBoardKey: string,
+    playerName: string,
+  ): Promise<number | null> {
+    const rank = await this.redisClient.zrevrank(leaderBoardKey, playerName);
+    return rank !== null ? rank + 1 : null; // Convert 0-based index to 1-based rank
+  }
 }

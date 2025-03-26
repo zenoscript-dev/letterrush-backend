@@ -8,6 +8,7 @@ import {
   getListOfRoomsKey,
   getPlayerSocketKey,
   getPlayersUnderRoomKey,
+  getRoomLeaderBoardKey,
   getUserRoomKey,
 } from 'src/utils/rediskeyGenerator.utils';
 import loadWordsIntoRedis from 'src/utils/words.utils';
@@ -496,13 +497,31 @@ export class GameService {
     }
   }
 
-  async getPlayerRank(roomId: string, nickName: string) {
+  // async getPlayerRank(roomId: string, nickName: string) {
+  //   try {
+  //     const leaderBoard = await this.getLeaderBoard(roomId);
+  //     const playerRank = leaderBoard.findIndex(
+  //       (player) => player.nickname === nickName,
+  //     );
+  //     return playerRank;
+  //   } catch (error) {
+  //     console.error('🎮 Error getting player rank:', error);
+  //     throw error;
+  //   }
+  // }
+
+  async getPlayerRank(
+    roomId: string,
+    playerName: string,
+  ): Promise<number | null> {
     try {
-      const leaderBoard = await this.getLeaderBoard(roomId);
-      const playerRank = leaderBoard.findIndex(
-        (player) => player.nickname === nickName,
+      const leaderBoardKey = getRoomLeaderBoardKey(roomId);
+      const rank = await this.redisService.getPlayerRank(
+        leaderBoardKey,
+        playerName,
       );
-      return playerRank;
+
+      return rank; // Convert 0-based index to 1-based rank
     } catch (error) {
       console.error('🎮 Error getting player rank:', error);
       throw error;
