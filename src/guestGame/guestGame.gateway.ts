@@ -9,6 +9,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { generateUUID } from 'src/utils/game.utils';
 import { GameService } from './service/game.service';
+import { Logger } from '@nestjs/common';
 
 interface Message {
   id: string;
@@ -42,36 +43,38 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
+  private readonly logger = new Logger(GameGateway.name);
+
   constructor(private readonly gameService: GameService) {
-    console.log('🚀 Socket gateway constructor initialized');
+    this.logger.log('Socket gateway constructor initialized');
   }
 
   // @Interval(5000) // Check every 5 seconds
   async handleSendRandomWord({ roomId }: { roomId: string }) {
     try {
       if (!roomId) {
-        console.log('❌ Room ID is required');
+        this.logger.error('Room ID is required');
         throw new Error('Room ID is required');
       }
       const currentWord = await this.gameService.sendRandomWordToRoom(roomId);
       if (currentWord) {
         await this.server.to(roomId).emit('random-word', currentWord);
       } else {
-        console.log('❌ No word available in Redis');
+        this.logger.error('No word available in Redis');
         throw new Error('No word available in Redis');
       }
     } catch (error) {
-      console.error('❌ Error cleaning inactive users:', error);
+      this.logger.error(`Error cleaning inactive users: ${error.message}`);
     }
   }
 
   async handleConnection(client: Socket) {
     try {
-      console.log('👋 New client connection attempt', { socketId: client.id });
+      this.logger.log(`New client connection attempt - Socket ID: ${client.id}`);
       const roomId = client.handshake.query.roomId as string;
       const nickname = client.handshake.query.nickname as string;
       if (!roomId || !nickname) {
-        console.log('❌ Room ID and player ID are required');
+        this.logger.error('Room ID and player ID are required');
         client.emit('error', { message: 'Room ID and player ID are required' });
         client.disconnect();
         return;
@@ -89,7 +92,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const leaderBoard = await this.gameService.getLeaderBoard(roomId);
       this.server.to(roomId).emit('leader-board', leaderBoard);
     } catch (error) {
-      console.error('❌ Error in handleConnection:', error);
+      this.logger.error(`Error in handleConnection: ${error.message}`);
       client.emit('error', { message: error.message || 'Connection error' });
       client.disconnect();
     }
@@ -99,16 +102,15 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const nickname = client.handshake.query.nickname as string;
       if (!nickname) {
-        console.log('❌ Nickname is required');
+        this.logger.error('Nickname is required');
         client.emit('error', { message: 'Nickname is required' });
         client.disconnect();
         return;
       }
-      console.log('👋 Client disconnecting:', client.id);
-      // Clean up user data immediately on disconnect
+      this.logger.log(`Client disconnecting: ${client.id}`);
       const removed = await this.gameService.removeClient(nickname, client);
       if (removed.removed) {
-        console.log('✅ Client data removed:', client.id);
+        this.logger.log(`Client data removed: ${client.id}`);
         this.server.to(removed.roomId).emit('player-left', {
           id: generateUUID(),
           message: `${nickname.split('@')[0]} left the room`,
@@ -122,10 +124,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         );
         this.server.to(removed.roomId).emit('leader-board', leaderBoard);
       } else {
-        console.log('❌ Client data not removed:', client.id);
+        this.logger.warn(`Client data not removed: ${client.id}`);
       }
     } catch (error) {
-      console.error('❌ Error in handleDisconnect:', error);
+      this.logger.error(`Error in handleDisconnect: ${error.message}`);
     }
   }
 
@@ -135,7 +137,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         await this.gameService.getNumberOfPlayersInRoom(roomId);
       this.server.to(roomId).emit('number-of-players', numberOfPlayers);
       if (numberOfPlayers === 2) {
-        console.log('🔄 Starting game for room:', roomId);
+        this.logger.log(`Starting game for room: ${roomId}`);
         this.server.to(roomId).emit('start-game', {
           id: generateUUID(),
           message: 'Game is started',
@@ -146,16 +148,16 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         await this.handleSendRandomWord({ roomId });
       }
     } catch (error) {
-      console.error('❌ Error in getNumberOfPlayersInRoom:', error);
+      this.logger.error(`Error in getNumberOfPlayersInRoom: ${error.message}`);
     }
   }
 
   async handleReconnect(client: Socket) {
-    console.log('🔄 Client reconnecting:', client.id);
+    this.logger.log(`Client reconnecting: ${client.id}`);
     const roomId = client.handshake.query.roomId as string;
     const nickname = client.handshake.query.nickname as string;
     if (!roomId || !nickname) {
-      console.log('❌ Room ID and player ID are required');
+      this.logger.error('Room ID and player ID are required');
       client.emit('error', { message: 'Room ID and player ID are required' });
       client.disconnect();
       return;
@@ -168,7 +170,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(roomId).emit('leader-board', leaderBoard);
   }
   catch(error) {
-    console.error('❌ Error in handleReconnect:', error);
+    this.logger.error(`Error in handleReconnect: ${error.message}`);
     throw new Error('Reconnection failed');
   }
 
@@ -177,18 +179,18 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const nickname = client.handshake.query.nickname as string;
       if (!nickname) {
-        console.log('❌ Nickname is required');
+        this.logger.error('Nickname is required');
         client.emit('error', { message: 'Nickname is required' });
         return;
       }
       if (!message) {
-        console.log('❌ Message is required');
+        this.logger.error('Message is required');
         client.emit('error', { message: 'Message is required' });
         return;
       }
       const result = await this.gameService.handleChat(client, nickname);
       if (result) {
-        console.log('🔄 Emitting chat message to room:', result);
+        this.logger.log(`Emitting chat message to room: ${result}`);
         this.server.to(result).emit('chat', {
           id: generateUUID(),
           message,
@@ -198,7 +200,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         } as Message);
       }
     } catch (error) {
-      console.error('❌ Error in chat:', error);
+      this.logger.error(`Error in chat: ${error.message}`);
     }
   }
 
@@ -207,13 +209,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const nickName = client.handshake.query.nickname as string;
       if (!word) {
-        console.log('❌ Word is required');
+        this.logger.error('Word is required');
         client.emit('error', { message: 'Word is required' });
         return;
       }
 
       if (!nickName) {
-        console.log('❌ Nickname is required');
+        this.logger.error('Nickname is required');
         client.emit('error', { message: 'Nickname is required' });
         return;
       }
@@ -242,15 +244,14 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         await this.handleSendRandomWord({
           roomId: result.roomId,
         });
-        console.log('🔄 Getting player rank');
+        this.logger.log('Getting player rank');
         const playerRank = await this.gameService.getPlayerRank(
           result.roomId,
           nickName,
         );
-        console.log('🔄 Player rank:', playerRank);
+        this.logger.log(`Player rank: ${playerRank}`);
         return client.emit('rank', playerRank);
       } else {
-        // client.emit('wordNotMatch', { message: 'Word does not match' });
         this.server.to(result.roomId).emit('word-not-match', {
           id: generateUUID(),
           message: `${nickName.split('@')[0]} submitted "${word}" but it does not match the current word!`,
@@ -258,7 +259,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
           nickName: nickName,
           type: MessageType.WORD_NOT_MATCH,
         } as Message);
-        console.log('🔄 Getting player rank');
+        this.logger.log('Getting player rank');
         const playerRank = await this.gameService.getPlayerRank(
           result.roomId,
           nickName,
@@ -266,7 +267,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return client.emit('rank', playerRank);
       }
     } catch (error) {
-      console.error('❌ Error in submitWord:', error);
+      this.logger.error(`Error in submitWord: ${error.message}`);
       client.emit('error', { message: 'Submission failed' });
     }
   }
@@ -276,7 +277,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const nickname = client.handshake.query.nickname as string;
       if (!nickname) {
-        console.log('❌ Nickname is required');
+        this.logger.error('Nickname is required');
         client.emit('error', { message: 'Nickname is required' });
         return;
       }
@@ -292,7 +293,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
       client.disconnect();
     } catch (error) {
-      console.error('❌ Error in leaveRoom:', error);
+      this.logger.error(`Error in leaveRoom: ${error.message}`);
       client.emit('error', { message: 'Failed to leave room' });
     }
   }
@@ -304,7 +305,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         await this.gameService.getNumberOfPlayersInRoom(roomId);
       this.server.to(roomId).emit('number-of-players', numberOfPlayers);
     } catch (error) {
-      console.error('❌ Error in getRoomSize:', error);
+      this.logger.error(`Error in getRoomSize: ${error.message}`);
       client.emit('error', { message: 'Failed to get room size' });
     }
   }
@@ -313,26 +314,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handlePing() {
     try {
       const allRooms = await this.gameService.getRoomList();
-      console.log('🏓 Starting ping check for all rooms');
+      this.logger.log('Starting ping check for all rooms');
 
-      // Iterate through all rooms
       for (const roomId of allRooms) {
-        // Get all players in the room
         const playersInRoom = await this.gameService.getPlayersInRoom(roomId);
 
-        // Ping each player and check activity
         for (const player of playersInRoom) {
           const playerSocket = await this.gameService.getPlayerSocket(player);
           if (playerSocket) {
             try {
-              // Get socket instance from socket id
               const socket = this.server.sockets.sockets.get(playerSocket);
 
               if (socket) {
-                // Try to ping the client
                 socket.emit('ping-check');
 
-                // Wait briefly for response
                 const isActive = await new Promise((resolve) => {
                   const timeout = setTimeout(() => resolve(false), 5000);
 
@@ -343,27 +338,24 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 });
 
                 if (!isActive) {
-                  console.log(
-                    `❌ Player ${player} is inactive, disconnecting...`,
-                  );
+                  this.logger.warn(`Player ${player} is inactive, disconnecting...`);
                   socket.disconnect();
                   await this.gameService.removeClient(player, socket);
                 }
               }
             } catch (err) {
-              console.error(`Error pinging player ${player}:`, err);
+              this.logger.error(`Error pinging player ${player}: ${err.message}`);
             }
           }
         }
 
-        // Send updated leaderboard after checking all players in this room
         const leaderBoard = await this.gameService.getLeaderBoard(roomId);
         this.server.to(roomId).emit('leader-board', leaderBoard);
       }
 
-      console.log('✅ Completed ping check for all rooms');
+      this.logger.log('Completed ping check for all rooms');
     } catch (error) {
-      console.error('❌ Error in ping:', error);
+      this.logger.error(`Error in ping: ${error.message}`);
     }
   }
 }
