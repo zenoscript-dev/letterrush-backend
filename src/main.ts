@@ -16,6 +16,7 @@ async function bootstrap() {
   //   await app.close(); // Graceful shutdown
   //   process.exit(0); // Exit safely
   // });
+  app.use('/api/v1');
 
   await app.listen(3100);
 }

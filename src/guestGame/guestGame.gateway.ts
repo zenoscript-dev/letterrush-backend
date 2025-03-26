@@ -34,7 +34,7 @@ export enum MessageType {
   RANK = 'rank',
 }
 
-@WebSocketGateway(4100, {
+@WebSocketGateway({
   cors: { origin: '*', pingTimeout: 60000, pingInterval: 30000 },
   namespace: '/game',
 })
