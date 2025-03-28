@@ -1,12 +1,17 @@
-import { Controller, Get, Logger } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { GameService } from 'src/guestGame/service/game.service';
+import { Room } from 'src/types';
 
 @Controller('rooms')
 export class RoomController {
   constructor(private readonly gameService: GameService) {}
 
   @Get()
-  async getAllRooms() {
+  async getAllRooms(): Promise<{
+    success: boolean;
+    data: Room[];
+    error?: string;
+  }> {
     try {
       const rooms = await this.gameService.getRoomList();
       return {
@@ -16,6 +21,7 @@ export class RoomController {
     } catch (error) {
       return {
         success: false,
+        data: [],
         error: error.message,
       };
     }

@@ -52,19 +52,28 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // @Interval(5000) // Check every 5 seconds
   async handleSendRandomWord({ roomId }: { roomId: string }) {
     try {
-      if (!roomId) {
-        this.logger.error('Room ID is required');
-        throw new Error('Room ID is required');
+      if (!roomId || typeof roomId !== 'string' || roomId.trim() === '') {
+        this.logger.error('Valid room ID is required');
+        throw new Error('Valid room ID is required');
       }
+
+      // Verify room exists before proceeding
+      await this.gameService.checkIfRoomExists(roomId);
+
       const currentWord = await this.gameService.sendRandomWordToRoom(roomId);
-      if (currentWord) {
-        await this.server.to(roomId).emit('random-word', currentWord);
-      } else {
-        this.logger.error('No word available in Redis');
-        throw new Error('No word available in Redis');
+      if (
+        !currentWord ||
+        typeof currentWord !== 'string' ||
+        currentWord.trim() === ''
+      ) {
+        this.logger.error('No valid word available in Redis');
+        throw new Error('No valid word available in Redis');
       }
+
+      await this.server.to(roomId).emit('random-word', currentWord);
     } catch (error) {
-      this.logger.error(`Error cleaning inactive users: ${error.message}`);
+      this.logger.error(`Error sending random word: ${error.message}`);
+      throw error; // Re-throw to handle at higher level
     }
   }
 
@@ -73,6 +82,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.logger.log(
         `New client connection attempt - Socket ID: ${client.id}`,
       );
+
+      // Validate query parameters exist
       const roomId = client.handshake.query.roomId as string;
       const nickname = client.handshake.query.nickname as string;
       if (!roomId || !nickname) {
@@ -81,7 +92,34 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.disconnect();
         return;
       }
+
+      // Validate roomId format
+      if (typeof roomId !== 'string' || roomId.trim() === '') {
+        this.logger.error('Invalid room ID format');
+        client.emit('error', { message: 'Invalid room ID format' });
+        client.disconnect();
+        return;
+      }
+
+      // Validate nickname format
+      if (
+        typeof nickname !== 'string' ||
+        nickname.trim() === '' ||
+        !nickname.includes('@')
+      ) {
+        this.logger.error('Invalid nickname format');
+        client.emit('error', { message: 'Invalid nickname format' });
+        client.disconnect();
+        return;
+      }
+
+      // Verify room exists
+      await this.gameService.checkIfRoomExists(roomId);
+
+      // Connect player to room
       await this.gameService.connectPlayerToRoom(roomId, client, nickname);
+
+      // Emit player joined event
       this.server.to(roomId).emit('player-joined', {
         id: generateUUID(),
         message: `${nickname.split('@')[0]} joined the room`,
@@ -89,6 +127,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         nickName: 'letterrush-bot',
         type: MessageType.PLAYER_JOINED,
       } as Message);
+
+      // Update room state
       await this.handleGetNumberOfPlayersInRoom(roomId);
       await this.gameService.sendWordToNewlyConnectedPlayer(client, roomId);
       const leaderBoard = await this.gameService.getLeaderBoard(roomId);
@@ -318,8 +358,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const allRooms = await this.gameService.getRoomList();
       this.logger.log('Starting ping check for all rooms');
 
-      for (const roomId of allRooms) {
-        const playersInRoom = await this.gameService.getPlayersInRoom(roomId);
+      for (const room of allRooms) {
+        const playersInRoom = await this.gameService.getPlayersInRoom(
+          room.roomId,
+        );
 
         for (const player of playersInRoom) {
           const playerSocket = await this.gameService.getPlayerSocket(player);
@@ -355,8 +397,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
           }
         }
 
-        const leaderBoard = await this.gameService.getLeaderBoard(roomId);
-        this.server.to(roomId).emit('leader-board', leaderBoard);
+        const leaderBoard = await this.gameService.getLeaderBoard(room.roomId);
+        this.server.to(room.roomId).emit('leader-board', leaderBoard);
       }
 
       this.logger.log('Completed ping check for all rooms');

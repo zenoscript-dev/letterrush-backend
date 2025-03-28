@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Socket } from 'socket.io';
 import { RedisService } from 'src/redis/redis.service';
+import { Room } from 'src/types';
 import { generateRoomName, generateUUID } from 'src/utils/game.utils';
 import {
   getCurrentWordForRoomKey,
@@ -51,7 +52,9 @@ export class GameService {
   async connectPlayerToRoom(roomId: string, client: Socket, nickName: string) {
     try {
       const playerSocketKey = getPlayerSocketKey(nickName);
-      this.logger.debug(`Player socket key: ${playerSocketKey}, Socket ID: ${client.id}`);
+      this.logger.debug(
+        `Player socket key: ${playerSocketKey}, Socket ID: ${client.id}`,
+      );
 
       // Store player's current socket ID in Redis
       await this.redisService.setKey(playerSocketKey, client.id);
@@ -65,7 +68,8 @@ export class GameService {
       }
 
       const playerCurrentRoomKey = getUserRoomKey(nickName);
-      const previousRoomId = await this.redisService.getKey(playerCurrentRoomKey);
+      const previousRoomId =
+        await this.redisService.getKey(playerCurrentRoomKey);
 
       // If the player is already in the correct room, do nothing
       if (previousRoomId === roomId) {
@@ -117,12 +121,14 @@ export class GameService {
     try {
       const numberOfRooms = Number(this.configService.get('NUMBER_OF_ROOMS'));
       this.logger.debug(`Creating ${numberOfRooms} rooms`);
-      
+
       for (let i = 0; i < numberOfRooms; i++) {
         const roomId = await generateUUID();
         const roomName = await generateRoomName();
         const listOfRoomsKey = getListOfRoomsKey();
-        this.logger.debug(`Creating room with ID: ${roomId}, Name: ${roomName}`);
+        this.logger.debug(
+          `Creating room with ID: ${roomId}, Name: ${roomName}`,
+        );
         await this.redisService.setHash(listOfRoomsKey, roomId, roomName);
       }
       this.logger.log('Created all rooms successfully');
@@ -134,6 +140,11 @@ export class GameService {
 
   async checkIfRoomExists(roomId: string) {
     try {
+      if (!roomId || typeof roomId !== 'string' || roomId.trim() === '') {
+        this.logger.error('Valid room ID is required');
+        throw new Error('Valid room ID is required');
+      }
+
       const listOfRoomsKey = getListOfRoomsKey();
       const room = await this.redisService.getHash(listOfRoomsKey, roomId);
       if (!room) {
@@ -147,7 +158,7 @@ export class GameService {
     }
   }
 
-  async getRoomList() {
+  async getRoomList(): Promise<Room[]> {
     try {
       const listOfRoomsKey = getListOfRoomsKey();
       this.logger.debug('Fetching room list');
@@ -161,7 +172,8 @@ export class GameService {
       const roomList = [];
       for (const roomId in rooms) {
         const playersUnderRoomKey = getPlayersUnderRoomKey(roomId);
-        const roomSize = await this.redisService.getSetMembersCount(playersUnderRoomKey);
+        const roomSize =
+          await this.redisService.getSetMembersCount(playersUnderRoomKey);
         this.logger.debug(`Room ${roomId} has ${roomSize} players`);
 
         roomList.push({
@@ -248,7 +260,10 @@ export class GameService {
         throw new Error('No words available in Redis');
       }
 
-      const randomWord = await this.redisService.setRamdonmMember(wordsKey, '1');
+      const randomWord = await this.redisService.setRamdonmMember(
+        wordsKey,
+        '1',
+      );
       this.logger.debug(`Retrieved random word`);
       return randomWord;
     } catch (error) {
@@ -311,18 +326,24 @@ export class GameService {
   async getNumberOfPlayersInRoom(roomId: string) {
     try {
       const playersUnderRoomKey = getPlayersUnderRoomKey(roomId);
-      const numberOfPlayers = await this.redisService.getSetMembersCount(playersUnderRoomKey);
+      const numberOfPlayers =
+        await this.redisService.getSetMembersCount(playersUnderRoomKey);
       this.logger.debug(`Room ${roomId} has ${numberOfPlayers} players`);
       return numberOfPlayers;
     } catch (error) {
-      this.logger.error('Error getting number of players in room:', error.stack);
+      this.logger.error(
+        'Error getting number of players in room:',
+        error.stack,
+      );
       throw error;
     }
   }
 
   async handleSubmitWord(client: Socket, word: string, nickName: string) {
     try {
-      this.logger.debug(`handleSubmitWord called with word: ${word}, nickname: ${nickName}`);
+      this.logger.debug(
+        `handleSubmitWord called with word: ${word}, nickname: ${nickName}`,
+      );
 
       if (!word) {
         this.logger.warn('Word is missing');
@@ -352,13 +373,17 @@ export class GameService {
 
       const currentWordForRoomKey = getCurrentWordForRoomKey(playerCurrentRoom);
       const currentWord = await this.redisService.getKey(currentWordForRoomKey);
-      this.logger.debug(`Current word: ${currentWord}, Submitted word: ${word}`);
+      this.logger.debug(
+        `Current word: ${currentWord}, Submitted word: ${word}`,
+      );
       if (!currentWord) {
         throw new Error('No word assigned to the room');
       }
 
       if (currentWord !== word) {
-        this.logger.debug(`Word mismatch - Expected: ${currentWord}, Received: ${word}`);
+        this.logger.debug(
+          `Word mismatch - Expected: ${currentWord}, Received: ${word}`,
+        );
         return {
           success: false,
           message: 'Word does not match',
@@ -368,7 +393,9 @@ export class GameService {
         };
       } else {
         await this.incremenetPlayerScore(playerCurrentRoom, nickName);
-        this.logger.debug(`Word matches! Deleting word from room ${playerCurrentRoom}`);
+        this.logger.debug(
+          `Word matches! Deleting word from room ${playerCurrentRoom}`,
+        );
         client.emit('wordMatch', { message: 'Word matches' });
         await this.redisService.deleteKey(currentWordForRoomKey);
         return {
@@ -386,8 +413,12 @@ export class GameService {
 
   async checkIfPlayerExists(nickName: string) {
     try {
-      const playerExists = await this.redisService.getKey(getPlayerSocketKey(nickName));
-      this.logger.debug(`Checking if player ${nickName} exists: ${!!playerExists}`);
+      const playerExists = await this.redisService.getKey(
+        getPlayerSocketKey(nickName),
+      );
+      this.logger.debug(
+        `Checking if player ${nickName} exists: ${!!playerExists}`,
+      );
       return playerExists;
     } catch (error) {
       this.logger.error('Error checking if player exists:', error.stack);
@@ -413,7 +444,9 @@ export class GameService {
   async addPlayerScore(roomId: string, nickName: string, score: number) {
     try {
       await this.redisService.addplayerScore(roomId, nickName, score);
-      this.logger.debug(`Added score ${score} for player ${nickName} in room ${roomId}`);
+      this.logger.debug(
+        `Added score ${score} for player ${nickName} in room ${roomId}`,
+      );
       return true;
     } catch (error) {
       this.logger.error('Error adding player score:', error.stack);
@@ -425,7 +458,9 @@ export class GameService {
     try {
       const playerScore = await this.getPlayerScore(roomId, nickName);
       await this.addPlayerScore(roomId, nickName, Number(playerScore) + 1);
-      this.logger.debug(`Incremented score for player ${nickName} in room ${roomId}`);
+      this.logger.debug(
+        `Incremented score for player ${nickName} in room ${roomId}`,
+      );
       return true;
     } catch (error) {
       this.logger.error('Error incrementing player score:', error.stack);
@@ -435,8 +470,13 @@ export class GameService {
 
   async getPlayerScore(roomId: string, nickName: string): Promise<number> {
     try {
-      const playerScore = await this.redisService.getPlayerScore(roomId, nickName);
-      this.logger.debug(`Retrieved score ${playerScore} for player ${nickName} in room ${roomId}`);
+      const playerScore = await this.redisService.getPlayerScore(
+        roomId,
+        nickName,
+      );
+      this.logger.debug(
+        `Retrieved score ${playerScore} for player ${nickName} in room ${roomId}`,
+      );
       return Number(playerScore);
     } catch (error) {
       this.logger.error('Error getting player score:', error.stack);
@@ -484,17 +524,30 @@ export class GameService {
       const currentWord = await this.fetchRoomCurrentWord(roomId);
       await client.emit('random-word', currentWord);
       await client.emit('leader-board', await this.getLeaderBoard(roomId));
-      this.logger.debug(`Sent word and leaderboard to new player in room ${roomId}`);
+      this.logger.debug(
+        `Sent word and leaderboard to new player in room ${roomId}`,
+      );
     } catch (error) {
-      this.logger.error('Error sending word to newly connected player:', error.stack);
+      this.logger.error(
+        'Error sending word to newly connected player:',
+        error.stack,
+      );
     }
   }
 
-  async getPlayerRank(roomId: string, playerName: string): Promise<number | null> {
+  async getPlayerRank(
+    roomId: string,
+    playerName: string,
+  ): Promise<number | null> {
     try {
       const leaderBoardKey = getRoomLeaderBoardKey(roomId);
-      const rank = await this.redisService.getPlayerRank(leaderBoardKey, playerName);
-      this.logger.debug(`Retrieved rank ${rank} for player ${playerName} in room ${roomId}`);
+      const rank = await this.redisService.getPlayerRank(
+        leaderBoardKey,
+        playerName,
+      );
+      this.logger.debug(
+        `Retrieved rank ${rank} for player ${playerName} in room ${roomId}`,
+      );
       return rank;
     } catch (error) {
       this.logger.error('Error getting player rank:', error.stack);
@@ -505,8 +558,11 @@ export class GameService {
   async getPlayersInRoom(roomId: string) {
     try {
       const playersUnderRoomKey = getPlayersUnderRoomKey(roomId);
-      const players = await this.redisService.getSetMembers(playersUnderRoomKey);
-      this.logger.debug(`Retrieved ${players.length} players in room ${roomId}`);
+      const players =
+        await this.redisService.getSetMembers(playersUnderRoomKey);
+      this.logger.debug(
+        `Retrieved ${players.length} players in room ${roomId}`,
+      );
       return players;
     } catch (error) {
       this.logger.error('Error getting players in room:', error.stack);
