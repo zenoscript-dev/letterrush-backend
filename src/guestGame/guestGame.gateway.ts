@@ -178,15 +178,15 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const numberOfPlayers =
         await this.gameService.getNumberOfPlayersInRoom(roomId);
       this.server.to(roomId).emit('number-of-players', numberOfPlayers);
-      if (numberOfPlayers === 2) {
+      if (numberOfPlayers >= 1) {
         this.logger.log(`Starting game for room: ${roomId}`);
-        this.server.to(roomId).emit('start-game', {
-          id: generateUUID(),
-          message: 'Game is started',
-          roomId,
-          nickName: 'letterrush-bot',
-          type: MessageType.START_GAME,
-        } as Message);
+        // this.server.to(roomId).emit('start-game', {
+        //   id: generateUUID(),
+        //   message: 'Game is started',
+        //   roomId,
+        //   nickName: 'letterrush-bot',
+        //   type: MessageType.START_GAME,
+        // } as Message);
         await this.handleSendRandomWord({ roomId });
       }
     } catch (error) {
@@ -367,7 +367,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
           const playerSocket = await this.gameService.getPlayerSocket(player);
           if (playerSocket) {
             try {
-              const socket = this.server.sockets.sockets.get(playerSocket);
+              const socket = this.server?.sockets?.sockets?.get(playerSocket);
 
               if (socket) {
                 socket.emit('ping-check');

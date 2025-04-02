@@ -12,7 +12,7 @@ import {
   getRoomLeaderBoardKey,
   getUserRoomKey,
 } from 'src/utils/rediskeyGenerator.utils';
-import loadWordsIntoRedis from 'src/utils/words.utils';
+import { WordService } from './word.service';
 
 /**
  * Interface representing a player in the game
@@ -34,12 +34,13 @@ export class GameService {
   constructor(
     private readonly redisService: RedisService,
     private readonly configService: ConfigService,
+    private readonly wordService: WordService,
   ) {}
 
   async onModuleInit() {
     // create and store all the rooms in redis hash
     await this.cleanRedisOnStartUp();
-    await loadWordsIntoRedis();
+    await this.wordService.loadWordsIntoRedis();
     const rooms = await this.redisService.getHashAllFields('rooms');
     if (!Object.keys(rooms).length) {
       this.logger.log('Creating new rooms');
@@ -255,6 +256,7 @@ export class GameService {
     try {
       const wordsKey = 'words';
       const wordCount = await this.redisService.getSetMembersCount(wordsKey);
+      console.log('wordCount', wordCount);
       if (wordCount === 0) {
         this.logger.warn('No words available in Redis');
         throw new Error('No words available in Redis');

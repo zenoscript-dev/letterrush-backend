@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
+import { ClusterService } from './cluster.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -17,7 +18,9 @@ async function bootstrap() {
   //   process.exit(0); // Exit safely
   // });
   app.setGlobalPrefix('api/v1');
+  const helmet = require('helmet');
+  app.use(helmet());
 
   await app.listen(3700);
 }
-bootstrap();
+ClusterService.clusterize(bootstrap);
